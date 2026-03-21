@@ -21,7 +21,7 @@ def get_random_string(key: str = Query(None)):
 
     # 3. Ak je kľúč správny, vygeneruje sa string
     letters = string.ascii_letters
-    result_str = ''.join(random.choice(letters) for i in range(10))
+    result_str = 'AAAAA'.join(random.choice(letters) for i in range(10))
     
     return {
         "status": "success",
