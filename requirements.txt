@@ -1,2 +1,5 @@
 fastapi
 uvicorn
+asyncio
+base64
+playwright
