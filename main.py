@@ -117,11 +117,13 @@ async def main():
 
         await browser.close()
 
-    output_path.write_text(html, encoding="utf-8")
-    size_kb = output_path.stat().st_size / 1024
-    print(f"\n✅  Hotovo! Súbor uložený: {output_path.resolve()}")
-    print(f"   Veľkosť: {size_kb:,.0f} KB")
-    print(f"   Otvor v prehliadači: file://{output_path.resolve()}")
+        await browser.close()
+    return html
+    # output_path.write_text(html, encoding="utf-8")
+    # size_kb = output_path.stat().st_size / 1024
+    # print(f"\n✅  Hotovo! Súbor uložený: {output_path.resolve()}")
+    # print(f"   Veľkosť: {size_kb:,.0f} KB")
+    # print(f"   Otvor v prehliadači: file://{output_path.resolve()}")
 
 
 
@@ -141,16 +143,10 @@ def get_random_string(key: str = Query(None)):
     letters = string.ascii_letters
     result_str = 'AAAAA'.join(random.choice(letters) for i in range(10))
     
-# --- Spustenie kompatibilné s Jupyter aj bežným Pythonom ---
     try:
         loop = asyncio.get_running_loop()
         # Sme v Jupyter / IPython — loop už beží, použijeme nest_asyncio
-        loop.run_until_complete(main())
+        return loop.run_until_complete(main())
     except RuntimeError:
         # Bežný Python — žiadny loop, spustíme štandardne
-        asyncio.run(main())
-        
-    return {
-        "status": "success",
-        "random_string": result_str
-    }
+        return asyncio.run(main())
