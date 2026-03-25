@@ -9,31 +9,15 @@ from urllib.parse import urljoin
 from fastapi import FastAPI, HTTPException, Query
 from playwright.async_api import async_playwright
 
-
 app = FastAPI()
 
-# Načítanie kľúča z prostredia Renderu
-# Ak kľúč v Renderi neexistuje, použije sa "default_tajny_kluc" (len pre testovanie)
 VALID_API_KEY = os.environ.get("API_KEY")
 
-
-
-
-# --- Kompatibilita s Jupyter / IPython (už bežiaci event loop) ---
-try:
-    import nest_asyncio
-    nest_asyncio.apply()
-except ImportError:
-    pass  # V bežnom Pythone nie je potrebný
-
-
 URL = "https://finance.yahoo.com/quote/PLTR/key-statistics/"
-OUTPUT_FILE = "PLTR_financials.html"  # napríklad Downloads
 EXTRA_WAIT_MS = 3000
 
 
 async def embed_resources(page, html: str, base_url: str) -> str:
-
     # Inline CSS
     css_links = re.findall(
         r'<link[^>]+rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']',
@@ -74,12 +58,17 @@ async def embed_resources(page, html: str, base_url: str) -> str:
     return html
 
 
-async def main():
-    output_path = Path(OUTPUT_FILE)
-    print(f"▶  Spúšťam Chromium a načítavam: {URL}")
-
+async def scrape() -> str:
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",               # nutné pre Render / Docker prostredie
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",    # obmedzená /dev/shm na Renderi
+                "--disable-gpu",
+            ],
+        )
         context = await browser.new_context(
             viewport={"width": 1440, "height": 900},
             user_agent=(
@@ -92,7 +81,7 @@ async def main():
 
         page = await context.new_page()
 
-        print("⏳  Čakám na dokončenie renderovania (networkidle)…")
+        print(f"⏳ Načítavam: {URL}")
         await page.goto(URL, wait_until="networkidle", timeout=60_000)
 
         # Pokus o zatvorenie cookie/consent dialógu
@@ -106,47 +95,26 @@ async def main():
             except Exception:
                 pass
 
-        print(f"⏳  Extra čakanie {EXTRA_WAIT_MS} ms na async dáta…")
+        print(f"⏳ Extra čakanie {EXTRA_WAIT_MS} ms…")
         await page.wait_for_timeout(EXTRA_WAIT_MS)
 
         html = await page.content()
         base_url = page.url
 
-        print("📦  Vkladám CSS a obrázky inline (base64)…")
+        print("📦 Vkladám resources inline…")
         html = await embed_resources(page, html, base_url)
 
-        await browser.close()
+        await browser.close()  # ← len raz!
 
-        await browser.close()
     return html
-    # output_path.write_text(html, encoding="utf-8")
-    # size_kb = output_path.stat().st_size / 1024
-    # print(f"\n✅  Hotovo! Súbor uložený: {output_path.resolve()}")
-    # print(f"   Veľkosť: {size_kb:,.0f} KB")
-    # print(f"   Otvor v prehliadači: file://{output_path.resolve()}")
-
-
-
 
 
 @app.get("/")
-def get_random_string(key: str = Query(None)):
-    # 1. Kontrola, či používateľ vôbec poslal kľúč
+async def get_page(key: str = Query(None)):  # ← async! FastAPI beží na asyncio
     if not key:
         raise HTTPException(status_code=401, detail="Chyba: Chýba API kľúč.")
-
-    # 2. Porovnanie zaslaného kľúča s tým v Renderi
     if key != VALID_API_KEY:
         raise HTTPException(status_code=403, detail="Chyba: Nesprávny API kľúč.")
 
-    # 3. Ak je kľúč správny, vygeneruje sa string
-    letters = string.ascii_letters
-    result_str = 'AAAAA'.join(random.choice(letters) for i in range(10))
-    
-    try:
-        loop = asyncio.get_running_loop()
-        # Sme v Jupyter / IPython — loop už beží, použijeme nest_asyncio
-        return loop.run_until_complete(main())
-    except RuntimeError:
-        # Bežný Python — žiadny loop, spustíme štandardne
-        return asyncio.run(main())
+    html = await scrape()  # priamo await, bez loop.run_until_complete
+    return html
