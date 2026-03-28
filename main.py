@@ -1,33 +1,3 @@
-# import os
-# import yfinance as yf
-# from fastapi import FastAPI, HTTPException, Query
-
-# app = FastAPI()
-
-# VALID_API_KEY = os.environ.get("API_KEY")
-
-
-# @app.get("/")
-# def get_pe(key: str = Query(None), ticker: str = Query("PLTR")):
-#     if not key:
-#         raise HTTPException(status_code=401, detail="Chýba API kľúč.")
-#     if key != VALID_API_KEY:
-#         raise HTTPException(status_code=403, detail="Nesprávny API kľúč.")
-
-#     stock = yf.Ticker(ticker)
-#     info = stock.info
-
-#     pe = info.get("trailingPE") or info.get("forwardPE")
-
-#     if pe is None:
-#         raise HTTPException(status_code=404, detail=f"P/E ratio pre {ticker} nie je dostupné.")
-
-#     return {
-#         "ticker": ticker.upper(),
-#         "trailingPE": info.get("trailingPE"),
-#         "forwardPE": info.get("forwardPE"),
-#     }
-
 import os
 import requests
 import pandas as pd
@@ -46,7 +16,10 @@ HEADERS = {
 }
 
 
-def get_pe_ratios(ticker: str) -> dict:
+def get_financial_data(ticker: str) -> dict:
+    import re
+    import json
+
     url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/"
 
     response = requests.get(url, headers=HEADERS, timeout=15)
@@ -54,53 +27,38 @@ def get_pe_ratios(ticker: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' nebol nájdený.")
     response.raise_for_status()
 
-    tables = pd.read_html(response.text)
-    if not tables:
-        raise HTTPException(status_code=500, detail="Na stránke sa nenašli žiadne tabuľky.")
+    match = re.search(r'"financialData"\s*:\s*(\{.*?"totalreturn":\[.*?\]\})', response.text, re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=500, detail="financialData JSON nebol nájdený v stránke.")
 
-    df = tables[0]
+    financial_data = json.loads(match.group(1))
+    date_keys = financial_data.get("datekey", [])
 
-    # Prvý stĺpec je názov riadku — nastav ho ako index
-    df = df.set_index(df.columns[0])
-
-    # Nájdi riadok s PE Ratio (môže sa volať rôzne)
-    pe_row = None
-    for idx in df.index:
-        if "PE Ratio" in str(idx) or "P/E" in str(idx):
-            pe_row = idx
-            break
-
-    if pe_row is None:
-        raise HTTPException(status_code=500, detail="P/E Ratio riadok nebol nájdený v tabuľke.")
-
-    pe_series = df.loc[pe_row]
-
-    # Vyčisti dáta — odstráň prázdne a "-" hodnoty
-    result = {}
-    for col, val in pe_series.items():
-        col_str = str(col).strip()
-        val_str = str(val).strip()
-        if val_str in ("-", "", "nan", "None"):
-            continue
-        try:
-            result[col_str] = float(val_str.replace(",", ""))
-        except ValueError:
-            result[col_str] = val_str
+    # Zostav výsledok: každý riadok = jeden rok, stĺpce = všetky metriky
+    result = []
+    for i, date in enumerate(date_keys):
+        row = {"period": str(date)}
+        for metric, values in financial_data.items():
+            if metric == "datekey":
+                continue
+            if isinstance(values, list) and i < len(values):
+                val = values[i]
+                row[metric] = round(val, 4) if isinstance(val, float) else val
+        result.append(row)
 
     return result
 
 
-@app.get("/pe")
-def get_pe(key: str = Query(None), ticker: str = Query("PLTR")):
+@app.get("/ratios")
+def get_ratios(key: str = Query(None), ticker: str = Query("PLTR")):
     if not key:
         raise HTTPException(status_code=401, detail="Chýba API kľúč.")
     if key != VALID_API_KEY:
         raise HTTPException(status_code=403, detail="Nesprávny API kľúč.")
 
-    pe_data = get_pe_ratios(ticker)
+    data = get_financial_data(ticker)
 
     return {
         "ticker": ticker.upper(),
-        "metric": "PE Ratio",
-        "data": pe_data
+        "data": data
     }
