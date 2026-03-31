@@ -17,6 +17,37 @@ HEADERS = {
 }
 
 
+def js_to_json(js_str: str) -> str:
+    """Konvertuje JS objekt (bez úvodzoviek) na validný JSON."""
+    # Pridaj úvodzovky okolo unquoted kľúčov napr. datekey: -> "datekey":
+    js_str = re.sub(r'([{,])\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', js_str)
+    # Nahraď JavaScript void 0 za null
+    js_str = js_str.replace("void 0", "null")
+    # Nahraď undefined za null
+    js_str = js_str.replace("undefined", "null")
+    # Nahraď true/false (už sú lowercase, JSON ich akceptuje)
+    return js_str
+
+
+def extract_js_object(text: str, key: str) -> str:
+    """Vyextrahuje JS objekt pre daný kľúč pomocou počítania zátvoriek."""
+    pattern = rf'{re.escape(key)}\s*:\s*\{{'
+    m = re.search(pattern, text)
+    if not m:
+        return None
+
+    start = m.end() - 1  # pozícia '{'
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i+1]
+    return None
+
+
 def get_financial_data(ticker: str) -> list:
     url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/"
 
@@ -27,26 +58,15 @@ def get_financial_data(ticker: str) -> list:
 
     html = response.text
 
-    # Pokus 1: štandardný pattern s totalreturn
-    match = re.search(r'"financialData"\s*:\s*(\{.*?"totalreturn":\[.*?\]\})', html, re.DOTALL)
-
-    # Pokus 2: všetko medzi financialData a "map"
-    if not match:
-        match = re.search(r'"financialData"\s*:\s*(\{.*?)\s*,\s*"map"\s*:', html, re.DOTALL)
-
-    # Pokus 3: všetko medzi financialData a "full_count"
-    if not match:
-        match = re.search(r'"financialData"\s*:\s*(\{.*?)\s*,\s*"full_count"\s*:', html, re.DOTALL)
-
-    if not match:
-        # Debug — vráť časť HTML kde by mali byť dáta
-        snippet = html[html.find("financialData"):html.find("financialData") + 200] if "financialData" in html else "financialData kľúč sa vôbec nenašiel v HTML"
-        raise HTTPException(status_code=500, detail=f"Parse zlyhal. Snippet: {snippet}")
+    js_obj = extract_js_object(html, "financialData")
+    if not js_obj:
+        raise HTTPException(status_code=500, detail="financialData objekt sa nenašiel v HTML.")
 
     try:
-        financial_data = json.loads(match.group(1))
+        json_str = js_to_json(js_obj)
+        financial_data = json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"JSON decode error: {e}")
+        raise HTTPException(status_code=500, detail=f"JSON decode error: {e}. Snippet: {js_obj[:300]}")
 
     date_keys = financial_data.get("datekey", [])
     if not date_keys:
