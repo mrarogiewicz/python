@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 app = FastAPI()
 
 VALID_API_KEY = os.environ.get("API_KEY")
-RENDER_URL = os.environ.get("RENDER_URL")  # napr. https://tvoja-app.onrender.com
+RENDER_URL = os.environ.get("RENDER_URL")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -19,9 +19,8 @@ HEADERS = {
 # --- Keep-alive ---
 
 def keep_alive():
-    """Pinguje samu seba každých 10 minút aby Render neuspával aplikáciu."""
     while True:
-        time.sleep(600)  # 10 minút
+        time.sleep(600)
         if RENDER_URL:
             try:
                 requests.get(f"{RENDER_URL}/ping", timeout=10)
@@ -58,6 +57,12 @@ def scrape_table(url: str) -> list:
     return df.to_dict(orient="records")
 
 
+def build_url(base: str, period: str) -> str:
+    if period == "annual":
+        return base
+    return f"{base}?p=quarterly"
+
+
 def check_auth(key: str):
     if not key:
         raise HTTPException(status_code=401, detail="Chýba API kľúč.")
@@ -71,10 +76,7 @@ def check_auth(key: str):
 def get_ratios(key: str = Query(None), ticker: str = Query("PLTR"), period: str = Query("quarterly")):
     check_auth(key)
     try:
-        if period == "annual":
-            url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/"
-        else:
-            url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/?p=quarterly"
+        url = build_url(f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/", period)
         data = scrape_table(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chyba: {e}")
@@ -85,10 +87,29 @@ def get_ratios(key: str = Query(None), ticker: str = Query("PLTR"), period: str 
 def get_income(key: str = Query(None), ticker: str = Query("PLTR"), period: str = Query("quarterly")):
     check_auth(key)
     try:
-        if period == "annual":
-            url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/"
-        else:
-            url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/?p=quarterly"
+        url = build_url(f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/", period)
+        data = scrape_table(url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chyba: {e}")
+    return {"ticker": ticker.upper(), "period": period, "data": data}
+
+
+@app.get("/balance")
+def get_balance(key: str = Query(None), ticker: str = Query("PLTR"), period: str = Query("quarterly")):
+    check_auth(key)
+    try:
+        url = build_url(f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/balance/", period)
+        data = scrape_table(url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chyba: {e}")
+    return {"ticker": ticker.upper(), "period": period, "data": data}
+
+
+@app.get("/cashflow")
+def get_cashflow(key: str = Query(None), ticker: str = Query("PLTR"), period: str = Query("quarterly")):
+    check_auth(key)
+    try:
+        url = build_url(f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/cashflow-statement/", period)
         data = scrape_table(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chyba: {e}")
