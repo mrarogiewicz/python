@@ -14,7 +14,7 @@ HEADERS = {
 
 
 def get_stock_ratios(symbol: str) -> list:
-    url = f"https://stockanalysis.com/stocks/{symbol}/financials/ratios/"
+    url = f"https://stockanalysis.com/stocks/{symbol}/financials/ratios/?p=quarterly" 
 
     response = requests.get(url, headers=HEADERS)
     response.raise_for_status()
