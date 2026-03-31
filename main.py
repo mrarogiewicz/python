@@ -1,6 +1,7 @@
 import os
+import re
+import json
 import requests
-import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 
 app = FastAPI()
@@ -16,10 +17,7 @@ HEADERS = {
 }
 
 
-def get_financial_data(ticker: str) -> dict:
-    import re
-    import json
-
+def get_financial_data(ticker: str) -> list:
     url = f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/ratios/"
 
     response = requests.get(url, headers=HEADERS, timeout=15)
@@ -27,14 +25,33 @@ def get_financial_data(ticker: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' nebol nájdený.")
     response.raise_for_status()
 
-    match = re.search(r'"financialData"\s*:\s*(\{.*?"totalreturn":\[.*?\]\})', response.text, re.DOTALL)
+    html = response.text
+
+    # Pokus 1: štandardný pattern s totalreturn
+    match = re.search(r'"financialData"\s*:\s*(\{.*?"totalreturn":\[.*?\]\})', html, re.DOTALL)
+
+    # Pokus 2: všetko medzi financialData a "map"
     if not match:
-        raise HTTPException(status_code=500, detail="financialData JSON nebol nájdený v stránke.")
+        match = re.search(r'"financialData"\s*:\s*(\{.*?)\s*,\s*"map"\s*:', html, re.DOTALL)
 
-    financial_data = json.loads(match.group(1))
+    # Pokus 3: všetko medzi financialData a "full_count"
+    if not match:
+        match = re.search(r'"financialData"\s*:\s*(\{.*?)\s*,\s*"full_count"\s*:', html, re.DOTALL)
+
+    if not match:
+        # Debug — vráť časť HTML kde by mali byť dáta
+        snippet = html[html.find("financialData"):html.find("financialData") + 200] if "financialData" in html else "financialData kľúč sa vôbec nenašiel v HTML"
+        raise HTTPException(status_code=500, detail=f"Parse zlyhal. Snippet: {snippet}")
+
+    try:
+        financial_data = json.loads(match.group(1))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"JSON decode error: {e}")
+
     date_keys = financial_data.get("datekey", [])
+    if not date_keys:
+        raise HTTPException(status_code=500, detail="datekey nie je v dátach.")
 
-    # Zostav výsledok: každý riadok = jeden rok, stĺpce = všetky metriky
     result = []
     for i, date in enumerate(date_keys):
         row = {"period": str(date)}
@@ -57,7 +74,6 @@ def get_ratios(key: str = Query(None), ticker: str = Query("PLTR")):
         raise HTTPException(status_code=403, detail="Nesprávny API kľúč.")
 
     data = get_financial_data(ticker)
-
     return {
         "ticker": ticker.upper(),
         "data": data
