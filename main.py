@@ -1,6 +1,7 @@
 import os
 import requests
 import pandas as pd
+from io import StringIO
 from fastapi import FastAPI, HTTPException, Query
 
 app = FastAPI()
@@ -17,7 +18,7 @@ def get_stock_ratios(symbol: str) -> str:
     try:
         response = requests.get(url, headers=HEADERS)
         response.raise_for_status()
-        tables = pd.read_html(response.text)
+        tables = pd.read_html(StringIO(response.text))  # fix pre pandas 2.0+
         df = tables[0]
         return df.to_json(orient="records", indent=4)
     except Exception as e:
