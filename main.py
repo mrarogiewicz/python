@@ -114,3 +114,8 @@ def get_cashflow(key: str = Query(None), ticker: str = Query("PLTR"), period: st
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chyba: {e}")
     return {"ticker": ticker.upper(), "period": period, "data": data}
+
+
+@app.get("/keepalive")
+def keepalive():
+    return "keeping alive..."
