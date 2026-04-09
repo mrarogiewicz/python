@@ -20,8 +20,8 @@ security = HTTPBearer()
 # --- Models ---
 
 class FinancialRequest(BaseModel):
-    ticker: str = "PLTR"
-    period: str = "quarterly"  # "quarterly" alebo "annual"
+    ticker: str
+    period: str = "annual"  # "quarterly" alebo "annual"
 
 
 # --- Helpers ---
